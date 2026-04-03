@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIEM Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: 'Segoe UI', monospace;
+      padding: 20px;
+    }
+    h1 {
+      color: #58a6ff;
+      font-size: 22px;
+      margin-bottom: 4px;
+    }
+    .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .stat-label { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+    .stat-val   { font-size: 28px; font-weight: 600; color: #c9d1d9; }
+    .stat-val.red    { color: #f85149; }
+    .stat-val.orange { color: #f0883e; }
+    .stat-val.blue   { color: #58a6ff; }
+    .stat-val.green  { color: #3fb950; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card h3 { font-size: 14px; color: #8b949e; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: #8b949e; font-weight: 500;
+         border-bottom: 1px solid #30363d; padding: 6px 8px; }
+    td { padding: 6px 8px; border-bottom: 1px solid #21262d; }
+    tr:hover td { background: #1c2128; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-CRITICAL { background: #3d1a1a; color: #f85149; }
+    .badge-HIGH     { background: #3d2a1a; color: #f0883e; }
+    .badge-MEDIUM   { background: #1a2d3d; color: #58a6ff; }
+    .badge-LOW      { background: #1a2d1a; color: #3fb950; }
+    .live-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      background: #3fb950;
+      border-radius: 50%;
+      margin-right: 6px;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.3; }
+    }
+    .full-width { grid-column: 1 / -1; }
+  </style>
+</head>
+<body>
+  <h1>&#x1F6E1; SIEM Security Dashboard</h1>
+  <p class="subtitle">
+    <span class="live-dot"></span>
+    Real-time monitoring — auto-refresh every 5s
+  </p>
+
+  <!-- Stat cards -->
+  <div class="grid-4">
+    <div class="card">
+      <div class="stat-label">Critical Alerts</div>
+      <div class="stat-val red"  id="cnt-critical">0</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">High Alerts</div>
+      <div class="stat-val orange" id="cnt-high">0</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Medium Alerts</div>
+      <div class="stat-val blue" id="cnt-medium">0</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Total Events</div>
+      <div class="stat-val green" id="cnt-total">0</div>
+    </div>
+  </div>
+
+  <!-- Charts + Top IPs -->
+  <div class="grid-2">
+    <div class="card">
+      <h3>Alert Severity Distribution</h3>
+      <canvas id="severityChart" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h3>Top Source IPs</h3>
+      <canvas id="ipChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- Alerts table -->
+  <div class="card">
+    <h3>Recent Alerts</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Type</th>
+          <th>Source IP</th>
+          <th>Severity</th>
+          <th>Message</th>
+        </tr>
+      </thead>
+      <tbody id="alerts-body">
+        <tr><td colspan="5" style="color:#8b949e">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+  let severityChart, ipChart;
+
+  function formatTime(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleTimeString();
+  }
+
+  async function loadAlerts() {
+    const res    = await fetch("/api/alerts");
+    const alerts = await res.json();
+
+    const tbody = document.getElementById("alerts-body");
+    tbody.innerHTML = "";
+
+    if (alerts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#8b949e">No alerts yet. Run the simulator.</td></tr>';
+      return;
+    }
+
+    alerts.forEach(a => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${formatTime(a.created_at)}</td>
+        <td>${a.alert_type || "—"}</td>
+        <td>${a.source_ip  || "—"}</td>
+        <td><span class="badge badge-${a.severity}">${a.severity}</span></td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${a.message || "—"}
+        </td>`;
+      tbody.appendChild(row);
+    });
+  }
+
+  async function loadStats() {
+    const res  = await fetch("/api/stats");
+    const data = await res.json();
+
+    // Update severity counts
+    let counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    let total  = 0;
+    (data.alert_stats || []).forEach(s => {
+      counts[s._id] = s.count;
+      total += s.count;
+    });
+    document.getElementById("cnt-critical").textContent = counts.CRITICAL;
+    document.getElementById("cnt-high").textContent     = counts.HIGH;
+    document.getElementById("cnt-medium").textContent   = counts.MEDIUM;
+    document.getElementById("cnt-total").textContent    = total;
+
+    // Severity pie chart
+    const svCtx = document.getElementById("severityChart").getContext("2d");
+    if (severityChart) severityChart.destroy();
+    severityChart = new Chart(svCtx, {
+      type: "doughnut",
+      data: {
+        labels: ["Critical", "High", "Medium", "Low"],
+        datasets: [{
+          data: [counts.CRITICAL, counts.HIGH, counts.MEDIUM, counts.LOW],
+          backgroundColor: ["#f85149","#f0883e","#58a6ff","#3fb950"],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        plugins: { legend: { labels: { color: "#c9d1d9", font: { size: 12 } } } }
+      }
+    });
+
+    // Top IPs bar chart
+    const ipCtx = document.getElementById("ipChart").getContext("2d");
+    const ips   = (data.top_ips || []).slice(0, 8);
+    if (ipChart) ipChart.destroy();
+    ipChart = new Chart(ipCtx, {
+      type: "bar",
+      data: {
+        labels: ips.map(i => i._id),
+        datasets: [{
+          label: "Events",
+          data:  ips.map(i => i.count),
+          backgroundColor: "#58a6ff"
+        }]
+      },
+      options: {
+        indexAxis: "y",
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: "#8b949e" }, grid: { color: "#21262d" } },
+          y: { ticks: { color: "#8b949e" }, grid: { color: "#21262d" } }
+        }
+      }
+    });
+  }
+
+  // Initial load
+  loadAlerts();
+  loadStats();
+
+  // Auto-refresh every 5 seconds
+  setInterval(() => { loadAlerts(); loadStats(); }, 5000);
+</script>
+</body>
+</html>

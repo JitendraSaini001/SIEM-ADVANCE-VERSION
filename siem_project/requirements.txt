@@ -1,0 +1,6 @@
+flask
+pymongo
+scikit-learn
+watchdog
+requests
+numpy
